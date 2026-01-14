@@ -40,11 +40,11 @@ class ProductController extends Controller
                 ->paginate($request->get('per_page', 15));
 
             $products->getCollection()->transform(function ($p) {
-                $p->image = $p->image ? env('APP_URL').'/public/storage/'.$p->image : null;
+                $p->image = $p->image ? 'storage/'.$p->image : null;
 
                 $p->gallery_images = $p->images->map(fn($img) => [
                     'id' => $img->id,
-                    'url' => $img->image ?  env('APP_URL').'/public/storage/'.$img->image : null,
+                    'url' => $img->image ? 'storage/'.$img->image : null,
                     'alt' => $img->alt ?? null,
                 ])->toArray();
 
@@ -53,7 +53,7 @@ class ProductController extends Controller
                     $customizations[$relation] = $p->{$relation}?->map(fn($item) => [
                         'id' => $item->id,
                         'name' => $item->name,
-                        'image' => $item->image ? env('APP_URL').'/public/storage/'.$item->image : null,
+                        'image' => $item->image ? 'storage/'.$item->image : null,
                     ])->toArray() ?? [];
                 }
                 $p->customizations = $customizations;
@@ -231,7 +231,7 @@ class ProductController extends Controller
             'slug' => 'nullable|string|unique:products,slug,' . ($productId ?? 'NULL') . ',id',
             'type' => 'required|string|in:simple,customizable,trading,Simple,Customizable,Trading',
             'price' => 'required|numeric|min:0',
-            'status' => 'required|boolean',
+            'status' => 'required|in:active,inactive',
             'offer_price' => 'nullable|numeric|min:0|lt:price',
             'category_id' => 'required|exists:categories,id',
             'short_description' => 'nullable|string',
@@ -356,13 +356,13 @@ class ProductController extends Controller
             'description' => $product->description,
             'created_at' => $product->created_at->format('Y-m-d H:i:s'),
             'updated_at' => $product->updated_at->format('Y-m-d H:i:s'),
-            'image' => $product->image ?  env('APP_URL').'/public/storage/'.$product->image  : null,
+            'image' => $product->image ? 'storage/'.$product->image  : null,
         ];
 
         if ($product->relationLoaded('images')) {
             $data['gallery_images'] = $product->images->map(fn($img) => [
                 'id' => $img->id,
-                'url' =>  env('APP_URL').'/public/storage/'.$img->image,
+                'url' =>  'storage/'.$img->image,
                 'alt' => $product->name,
             ])->toArray();
         }
@@ -380,7 +380,7 @@ class ProductController extends Controller
                 $data['customizations'][$relation] = $product->{$relation}->map(fn($item) => [
                     'id' => $item->id,
                     'name' => $item->name,
-                    'image' => $item->image ? env('APP_URL').'/public/storage/'.$item->image : null,
+                    'image' => $item->image ? 'storage/'.$item->image : null,
                 ])->toArray();
             }
         }
@@ -414,26 +414,4 @@ class ProductController extends Controller
     {
         return $this->errorResponse('Unauthorized access', 401);
     }
-    
-    
-        /**
-     * update product status.
-     */
-    public function updateProduct(Request $request)
-    {
-        try {
-            $product = Product::where('id', $request->id)->firstOrFail();
-    
-            $product->update([
-                'status' => $request->status,
-            ]);
-    
-            return $this->successResponse('Product status updated successfully', $this->formatSingleProduct($product));
-        } catch (\Exception $e) {
-            return $this->errorResponse('Product not found', 404);
-        }
-    }
-
-    
-    
 }

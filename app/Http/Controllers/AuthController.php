@@ -111,11 +111,7 @@ class AuthController extends Controller
                 'message' => 'Login successful',
                 'data'    => [
                     'token' => $token,
-                    'user'  =>[
-                    'id' =>$user->id,
-                    'name' =>$user->name,
-                    'role' => $user->role
-                        ]
+                    'user'  => LoginUserResource::make($user),
                 ],
             ], 200);
 
