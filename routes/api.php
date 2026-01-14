@@ -70,9 +70,6 @@ Route::middleware(['auth:api', 'roles:Admin'])->prefix('admin')->group(function 
 
     Route::post('/secrets/{secret}/restore', [SecretKeyController::class, 'restore'])
         ->name('secrets.restore');
-        
-    Route::get('/secret/{name}', [SecretKeyController::class, 'getByName'])
-        ->name('secrets.get-by-name');
     
 });
 

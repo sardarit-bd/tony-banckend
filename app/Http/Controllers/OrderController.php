@@ -260,4 +260,21 @@ class OrderController extends Controller
         return response()->json(['checkout_url' => $session->url]);
     }
 
+    public function update(Request $request, $id)
+    {
+        $order = Order::find($id);  // Find the order by ID
+
+        if (!$order) {
+            return response()->json(['error' => 'Order not found'], 404);
+        }
+
+        $order->update($request->all());
+
+        return response()->json(['message' => 'Order updated successfully']);
+    }
+
+    public function destroy() {
+        
+    }
+
 }
