@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\SecretKey;
-use App\Services\SecretManager;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -12,7 +11,7 @@ class SecretKeyController extends Controller
 {
     public function index(): JsonResponse
     {
-        $secrets = SecretKey::active()->select('id', 'name', 'value', 'environment', 'description', 'is_active', 'updated_at')
+        $secrets = SecretKey::select('id', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_key', 'is_active', 'updated_at')
             ->get();
 
         return response()->json([
@@ -22,15 +21,14 @@ class SecretKeyController extends Controller
 
     public function show(SecretKey $secret): JsonResponse
     {
-
         return response()->json([
             'data' => [
-                'id'           => $secret->id,
-                'name'         => $secret->name,
-                'value'        => $secret->value,
-                'environment'  => $secret->environment,
-                'description'  => $secret->description,
-                'is_active'    => $secret->is_active,
+                'id'                      => $secret->id,
+                'stripe_publishable_key'  => $secret->stripe_publishable_key,
+                'stripe_secret_key'      => $secret->stripe_secret_key,
+                'stripe_webhook_key'      => $secret->stripe_webhook_key,
+                'is_active'               => $secret->is_active,
+                'updated_at'              => $secret->updated_at,
             ]
         ]);
     }
@@ -38,34 +36,33 @@ class SecretKeyController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name'        => 'required|string|unique:secret_keys,name',
-            'value'       => 'required|string',
-            'environment' => 'sometimes|string|in:production,staging,testing',
-            'description' => 'nullable|string',
+            'stripe_publishable_key' => 'required|string|unique:secret_keys,stripe_publishable_key',
+            'stripe_secret_key'     => 'required|string|unique:secret_keys,stripe_secret_key',
+            'stripe_webhook_key'     => 'required|string|unique:secret_keys,stripe_webhook_key',
         ]);
 
         $secret = SecretKey::create($validated);
 
         return response()->json([
-            'message' => 'Secret key created successfully',
-            'data'    => $secret->only(['id', 'name', 'environment'])
+            'message' => 'Stripe keys created successfully',
+            'data'    => $secret->only(['id', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_key', 'is_active'])
         ], 201);
     }
 
     public function update(Request $request, SecretKey $secret): JsonResponse
     {
         $validated = $request->validate([
-            'name'        => 'sometimes|string|unique:secret_keys,name,' . $secret->id,
-            'value'       => 'sometimes|required|string',
-            'description' => 'nullable|string',
-            'is_active'   => 'sometimes|boolean',
+            'stripe_publishable_key' => 'sometimes|string|unique:secret_keys,stripe_publishable_key,' . $secret->id,
+            'stripe_secret_key'     => 'sometimes|string|unique:secret_keys,stripe_secret_key,' . $secret->id,
+            'stripe_webhook_key'     => 'sometimes|string|unique:secret_keys,stripe_webhook_key,' . $secret->id,
+            'is_active'              => 'sometimes|boolean',
         ]);
 
         $secret->update($validated);
 
         return response()->json([
-            'message' => 'Secret key updated successfully',
-            'data'    => $secret->only(['id', 'name', 'environment', 'is_active'])
+            'message' => 'Stripe keys updated successfully',
+            'data'    => $secret->only(['id', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_key', 'is_active'])
         ]);
     }
 
@@ -73,24 +70,30 @@ class SecretKeyController extends Controller
     {
         $secret->update(['is_active' => false]);
 
-        return response()->json(['message' => 'Secret key deactivated']);
+        return response()->json(['message' => 'Stripe keys deactivated']);
     }
 
     public function restore(SecretKey $secret): JsonResponse
     {
         $secret->update(['is_active' => true]);
 
-        return response()->json(['message' => 'Secret key restored']);
+        return response()->json(['message' => 'Stripe keys restored']);
     }
 
-    public function getByName($name): JsonResponse
+    public function getActive(): JsonResponse
     {
-        $value = SecretManager::get($name);
+        $secret = SecretKey::where('is_active', true)->first();
 
-        if (!$value) {
-            return response()->json(['error' => 'Secret not found'], 404);
+        if (!$secret) {
+            return response()->json(['error' => 'No active Stripe keys found'], 404);
         }
 
-        return response()->json(['name' => $name, 'value' => $value]);
+        return response()->json([
+            'data' => [
+                'stripe_publishable_key' => $secret->stripe_publishable_key,
+                'stripe_secret_key'     => $secret->stripe_secret_key,
+                'stripe_webhook_key'     => $secret->stripe_webhook_key,
+            ]
+        ]);
     }
 }

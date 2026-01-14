@@ -9,7 +9,10 @@ use Illuminate\Support\Facades\Crypt;
 class SecretKey extends Model
 {
     protected $fillable = [
-        'name', 'value', 'environment', 'description', 'is_active'
+        'stripe_publishable_key',
+        'stripe_secret_key', 
+        'stripe_webhook_key',
+        'is_active',
     ];
 
     // Automatically encrypt/decrypt the value
@@ -33,10 +36,5 @@ class SecretKey extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
-    }
-
-    public function scopeProduction($query)
-    {
-        return $query->where('environment', 'production');
     }
 }

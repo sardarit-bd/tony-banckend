@@ -13,10 +13,9 @@ return new class extends Migration
     {
         Schema::create('secret_keys', function (Blueprint $table) {
             $table->id();
-            $table->string('name')->unique();
-            $table->text('value');
-            $table->string('environment')->default('production');
-            $table->text('description')->nullable();
+            $table->string('stripe_publishable_key')->unique();
+            $table->string('stripe_secret_key')->unique();
+            $table->string('stripe_webhook_key')->unique();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

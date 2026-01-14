@@ -19,9 +19,7 @@ class AdminOrderController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        // Authorization using Gate/Policy (better approach)
         try {
-            // Query optimization with pagination
             $orders = Order::with(['orderItems.product', 'user:id,name,email'])
                 ->when($request->status, function ($query) use ($request) {
                     $query->where('status', $request->status);
@@ -87,28 +85,23 @@ class AdminOrderController extends Controller
 
 
         try {
-            // ✅ Update the main order
             $order->update($request->only([
                 'name','email','phone','address','status','is_paid','is_customized'
             ]) + ['updated_by' => Auth::user()->id]);
 
-            // ✅ Update order items if provided
             if ($request->has('items')) {
                 foreach ($request->items as $item) {
                     if (isset($item['id'])) {
-                        // Update existing item
                         $orderItem = $order->orderItems()->find($item['id']);
                         if ($orderItem) {
                             $orderItem->update($item);
                         }
                     } else {
-                        // Create new item
                         $order->orderItems()->create($item);
                     }
                 }
             }
 
-            // ✅ Update payments if provided
             if ($request->has('payments')) {
                 foreach ($request->payments as $payment) {
                     if (isset($payment['id'])) {
