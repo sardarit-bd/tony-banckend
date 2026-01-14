@@ -262,7 +262,7 @@ class OrderController extends Controller
 
     public function update(Request $request, $id)
     {
-        $order = Order::find($id);  // Find the order by ID
+        $order = Order::find($id);
 
         if (!$order) {
             return response()->json(['error' => 'Order not found'], 404);
