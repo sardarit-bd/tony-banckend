@@ -33,20 +33,39 @@ class SecretKeyController extends Controller
         ]);
     }
 
+    // public function store(Request $request): JsonResponse
+    // {
+    //     $validated = $request->validate([
+    //         'stripe_publishable_key' => 'required|string|unique:secret_keys,stripe_publishable_key',
+    //         'stripe_secret_key'     => 'required|string|unique:secret_keys,stripe_secret_key',
+    //         'stripe_webhook_key'     => 'required|string|unique:secret_keys,stripe_webhook_key',
+    //     ]);
+
+    //     $secret = SecretKey::create($validated);
+
+    //     return response()->json([
+    //         'message' => 'Stripe keys created successfully',
+    //         'data'    => $secret->only(['id', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_key', 'is_active'])
+    //     ], 201);
+    // }
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'stripe_publishable_key' => 'required|string|unique:secret_keys,stripe_publishable_key',
-            'stripe_secret_key'     => 'required|string|unique:secret_keys,stripe_secret_key',
-            'stripe_webhook_key'     => 'required|string|unique:secret_keys,stripe_webhook_key',
+            'stripe_publishable_key' => 'required|string',
+            'stripe_secret_key'      => 'required|string',
+            'stripe_webhook_key'     => 'required|string',
         ]);
 
-        $secret = SecretKey::create($validated);
+        $secret = SecretKey::updateOrCreate(
+            ['id' => 4],
+            $validated
+        );
 
         return response()->json([
-            'message' => 'Stripe keys created successfully',
+            'message' => 'Stripe keys saved successfully',
             'data'    => $secret->only(['id', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_key', 'is_active'])
-        ], 201);
+        ], 200);
     }
 
     public function update(Request $request, SecretKey $secret): JsonResponse
