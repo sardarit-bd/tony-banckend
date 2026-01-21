@@ -10,8 +10,21 @@ class Order extends Model
     use Prunable;
 
     protected $fillable = [
-        'name', 'email', 'phone', 'address', 'city', 'zipcode', 'total', 'status', 'is_paid', 'is_customized', 'customized_file'
+        'user_id',
+        'name',
+        'email',
+        'phone',
+        'address',
+        'city',          
+        'zipcode',        
+        'total',
+        'status',
+        'is_paid',     
+        'stripe_session_id',
+        'is_customized',
+        'customized_file',
     ];
+
 
     protected $casts = [
         'is_paid' => 'boolean',

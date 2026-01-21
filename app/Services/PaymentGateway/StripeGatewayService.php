@@ -34,50 +34,23 @@ class StripeGatewayService
             $validatedItems = [];
             $trustedTotal = 0;
 
-            foreach ($request->items as $index => $item) {
-                $product = Product::where('id', $item['product_id'])
-                    ->where('status', 1)
-                    ->first();
-
-                if (!$product) {
-                    $inactiveProduct = Product::where('id', $item['product_id'])->first();
-                    
-                    if ($inactiveProduct) {
-                        Log::warning('Inactive product in cart', [
-                            'product_id' => $item['product_id'],
-                            'status' => $inactiveProduct->status,
-                            'email' => $request->email,
-                        ]);
-                        
-                        return response()->json([
-                            'success' => false,
-                            'message' => "Product '{$inactiveProduct->name}' is no longer available.",
-                        ], 404);
-                    }
-                    
-                    Log::warning('Product not found', [
-                        'product_id' => $item['product_id'],
-                        'email' => $request->email,
-                    ]);
-                    
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Product (ID: {$item['product_id']}) not found. Please refresh your cart.",
-                    ], 404);
-                }
+            foreach ($request->items as $item) {
+                $product = Product::where('status', 1)
+                    ->findOrFail($item['product_id']);
 
                 $sellingPrice = $product->offer_price > 0 
                     ? $product->offer_price 
                     : $product->price;
 
                 $quantity = (int) $item['qty'];
+
                 $lineTotal = $sellingPrice * $quantity;
                 $trustedTotal += $lineTotal;
 
                 $validatedItems[] = [
                     'product_id'   => $product->id,
                     'name'         => $product->name,
-                    'quantity'     => $quantity,
+                    'qty'          => $quantity,
                     'price'        => $sellingPrice,
                     'total'        => $lineTotal,
                     'FinalPDF'     => $item['FinalPDF'] ?? null,
@@ -116,7 +89,7 @@ class StripeGatewayService
             $stripeItems = array_map(function ($item) {
                 return [
                     'name'  => $item['name'],
-                    'qty'   => $item['quantity'],
+                    'qty'   => $item['qty'],
                     'price' => round($item['price'] * 100),
                 ];
             }, $validatedItems);
@@ -196,7 +169,7 @@ class StripeGatewayService
             foreach ($validatedItems as $item) {
                 $orderItem = $order->orderItems()->create([
                     'product_id' => $item['product_id'],
-                    'quantity'   => $item['quantity'],
+                    'quantity'   => $item['qty'],
                     'price'      => $item['price'],
                 ]);
 

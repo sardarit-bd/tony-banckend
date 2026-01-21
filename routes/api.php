@@ -38,7 +38,7 @@ Route::post('subscribers', [SubscriberController::class, 'store']);
 
 // Shop routes - These come AFTER specific routes
 Route::get('shop', [ProductController::class, 'index']);
-Route::get('shop/{slug}', [ProductController::class, 'show']); // This must be last
+Route::get('shop/{slug}', [ProductController::class, 'show']);
 
 // Payments
 Route::apiResource('payments', PaymentController::class);
