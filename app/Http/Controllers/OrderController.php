@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -204,21 +205,88 @@ class OrderController extends Controller
     }
 
     // retry payment for pending orders
-    public function retryPayment(Order $order)
-    {
-        if ($order->status !== 'pending') {
-            return response()->json(['error' => 'Order is not pending'], 403);
-        }
+    // public function retryPayment(Order $order)
+    // {
+    //     if ($order->status !== 'pending') {
+    //         return response()->json(['error' => 'Order is not pending'], 403);
+    //     }
 
-        $user = auth('api')->user();
+    //     $user = auth('api')->user();
 
-        if (!$user) {
-            return response()->json(['error' => 'Authentication required'], 401);
-        }
+    //     if (!$user) {
+    //         return response()->json(['error' => 'Authentication required'], 401);
+    //     }
 
-        if ($order->email !== $user->email) {
-            return response()->json(['error' => 'Unauthorized: Order does not belong to you'], 403);
-        }
+    //     if ($order->email !== $user->email) {
+    //         return response()->json(['error' => 'Unauthorized: Order does not belong to you'], 403);
+    //     }
+
+    //     $previousPayment = $order->orderHasPaids()->where('status', 'pending')->latest()->first();
+    //     if ($previousPayment) {
+    //         $previousPayment->update([
+    //             'status' => 'failed',
+    //             'notes' => 'Previous attempt abandoned - user retried manually',
+    //         ]);
+    //     }
+
+    //     $order->orderHasPaids()->create([
+    //         'amount' => $order->total,
+    //         'method' => 'stripe',
+    //         'status' => 'pending',
+    //         'notes' => 'Manual retry by user',
+    //     ]);
+
+    //     $gateway = PaymentGatewayFactory::make('stripe');
+    //     $stripeItems = $order->orderItems->map(function ($item) {
+    //         $product = $item->product;
+    //         $sellingPrice = $product->offer_price > 0 ? $product->offer_price : $product->price;
+    //         return [
+    //             'name' => $product->name,
+    //             'qty' => $item->quantity,
+    //             'price' => round($sellingPrice * 100),
+    //         ];
+    //     })->toArray();
+
+    //     $session = $gateway->createCheckout([
+    //         'items' => $stripeItems,
+    //         'order_id' => $order->id,
+    //         'success_url' => env('APP_URL') . '/payment/success',
+    //         'cancel_url' => env('APP_URL') . '/payment/cancel',
+    //         'currency' => 'usd',
+    //         'metadata' => ['order_id' => $order->id],
+    //         'expires_at' => now()->addHour(1)->timestamp,
+    //         'after_expiration' => ['recovery' => ['enabled' => true]],
+    //     ]);
+
+    //     return response()->json(['checkout_url' => $session->url]);
+    // }
+
+        public function retryPayment(Order $order)
+        {
+            
+            Log::info("Retry Attempt for Order ID: " . $order->id);
+            
+           
+            if ($order->status !== 'pending') {
+                return response()->json(['error' => 'Order is not pending. Current status: ' . $order->status], 403);
+            }
+
+            $user = auth('api')->user();
+
+            if (!$user) {
+                return response()->json(['error' => 'Authentication required'], 401);
+            }
+
+      
+            if ($order->user_id !== $user->id) {
+                return response()->json([
+                    'error' => 'Unauthorized: Order does not belong to you.',
+                    'debug_order_user_id' => $order->user_id,
+                    'debug_current_user_id' => $user->id,
+                    'debug_current_user_email' => $user->email
+                ], 403);
+            }
+
 
         $previousPayment = $order->orderHasPaids()->where('status', 'pending')->latest()->first();
         if ($previousPayment) {
@@ -235,6 +303,7 @@ class OrderController extends Controller
             'notes' => 'Manual retry by user',
         ]);
 
+   
         $gateway = PaymentGatewayFactory::make('stripe');
         $stripeItems = $order->orderItems->map(function ($item) {
             $product = $item->product;
@@ -242,22 +311,29 @@ class OrderController extends Controller
             return [
                 'name' => $product->name,
                 'qty' => $item->quantity,
-                'price' => round($sellingPrice * 100),
+                'price' => round($sellingPrice * 100), 
             ];
         })->toArray();
 
-        $session = $gateway->createCheckout([
-            'items' => $stripeItems,
-            'order_id' => $order->id,
-            'success_url' => env('APP_URL') . '/payment/success',
-            'cancel_url' => env('APP_URL') . '/payment/cancel',
-            'currency' => 'usd',
-            'metadata' => ['order_id' => $order->id],
-            'expires_at' => now()->addHour(1)->timestamp,
-            'after_expiration' => ['recovery' => ['enabled' => true]],
-        ]);
+        try {
+            $session = $gateway->createCheckout([
+                'items' => $stripeItems,
+                'order_id' => $order->id,
+                'success_url' => env('APP_URL') . '/payment/success',
+                'cancel_url' => env('APP_URL') . '/payment/cancel',
+                'currency' => 'usd',
+                'metadata' => ['order_id' => $order->id],
+                'expires_at' => now()->addHour(1)->timestamp,
+                'after_expiration' => ['recovery' => ['enabled' => true]],
+            ]);
 
-        return response()->json(['checkout_url' => $session->url]);
+            return response()->json(['checkout_url' => $session->url]);
+
+        } catch (\Exception $e) {
+            // Log the actual error for debugging
+            Log::error('Stripe Checkout Error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to initialize payment gateway'], 500);
+        }
     }
 
     public function update(Request $request, $id)

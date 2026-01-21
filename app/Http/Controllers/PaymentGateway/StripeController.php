@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PaymentGateway;
 
 use App\Models\Order;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use App\Services\PaymentGateway\StripeGatewayService;
 
@@ -20,6 +21,7 @@ class StripeController extends Controller
 
     public function createCheckoutSession(Request $request)
     {
+        Log::info('=== CHECKPOINT 0: StripeController called ===');
         return $this->stripeGatewayService->createCheckoutSession($request);
     }
     
