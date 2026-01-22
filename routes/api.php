@@ -40,7 +40,7 @@ Route::middleware('auth:api')->group(function () {
 //======================================================================
 //============================Admin can handle==========================
 //======================================================================
-Route::middleware(['auth:api', 'roles:Admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth:api', 'roles:Admin'])->group(function () {
     Route::apiResource('categories',CategoryController::class);
     Route::apiResource('products',ProductController::class);
     Route::resource('orders', AdminOrderController::class)
@@ -99,7 +99,6 @@ Route::delete('contacts/{id}', [ContactController::class, 'destroy']);
 });
 
 //=============================================================
-//====================public routes============================
 //====================public routes============================
 //=============================================================
 

@@ -22,7 +22,7 @@ class CategoryController extends Controller
         $baseUrl = url('/public');
         $categories->transform(function ($category) use ($baseUrl) {
             if (!empty($category->image)) {
-                $category->image = $baseUrl .'/'. 'storage/' . ltrim($category->image, '/');
+                $category->image =  env('APP_URL').'/public/storage/'.ltrim($category->image, '/');
             }
             return $category;
         });

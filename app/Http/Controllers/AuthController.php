@@ -49,7 +49,7 @@ class AuthController extends Controller
                 'message' => 'User registered successfully',
                 'data'    => [
                     'token' => $token,
-                    'user'  => LoginUserResource::make($user),
+                    'user'  =>$user,
                 ],
             ], 201);
 
@@ -111,7 +111,7 @@ class AuthController extends Controller
                 'message' => 'Login successful',
                 'data'    => [
                     'token' => $token,
-                    'user'  => LoginUserResource::make($user),
+                    'user'  => $user,
                 ],
             ], 200);
 
