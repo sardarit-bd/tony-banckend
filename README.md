@@ -15,7 +15,7 @@ This is a Laravel-based API for creating and customizing avatars. Users can regi
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/ahsan-alam-500/tonycustom.git
+    https://github.com/sardarit-bd/tony-banckend.git
     cd customize
     ```
 
