@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use App\Services\PaymentGateway\PaymentGatewayFactory;
+use App\Http\Resources\OrderResource;
 
 /**
  * Class OrderController
@@ -39,10 +41,13 @@ class OrderController extends Controller
             'data'    => ['orders' => $orders],
         ]);
     }
+    
+    
 
     public function store(Request $request)
     {
-        $user = Auth::user();
+        $user = User::where('id', $request->userID)->latest()->first();
+        
 
         // Validate request
         $validator = Validator::make($request->all(), [
@@ -276,5 +281,26 @@ class OrderController extends Controller
     public function destroy() {
         
     }
+    
+    
+    // My Orders here 
+    // My Orders here 
+    // My Orders here 
+    
+    public function myorders(Request $request,$id)
+    {
+         $orders = Order::with(['orderItems.product', 'user:id,name,email'])
+            ->where('user_id',$id)
+            ->latest('id')
+            ->paginate(10);
+            
+             return response()->json([
+             'message' => 'Order fetched successfully',
+             'data'=> $orders
+            ]);
+    
+    }
+
+    
 
 }
