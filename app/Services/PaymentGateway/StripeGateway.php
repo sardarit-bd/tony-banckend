@@ -44,7 +44,9 @@ class StripeGateway implements PaymentGatewayInterface
             'line_items' => $lineItems,
             'success_url' => $data['success_url'],
             'cancel_url'  => $data['cancel_url'],
-            'metadata' => $data['metadata'] ?? [], // ✅ FIXED: Use metadata from service
+            'metadata' => [
+                'order_id' => $data['metadata']['order_id'],
+            ],
             'expires_at' => $data['expires_at'] ?? now()->addHour(1)->timestamp,
             'after_expiration' => $data['after_expiration'] ?? [
                 'recovery' => ['enabled' => true],

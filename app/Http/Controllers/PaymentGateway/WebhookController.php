@@ -7,14 +7,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
 
 class WebhookController extends Controller
 {
     /**
      * Handle Stripe webhook events
-     * This is where orders are created AFTER successful payment
+     * Updates existing orders when payment is completed
      */
     public function handle(Request $request)
     {
@@ -67,126 +65,72 @@ class WebhookController extends Controller
     }
 
     /**
-     * Create order after successful payment
+     * Update order when payment is completed
      */
     protected function handleCheckoutCompleted($session)
     {
-        $checkoutSessionId = $session->metadata->checkout_session_id ?? null;
+        $orderId = $session->metadata->order_id ?? null;
 
-        if (!$checkoutSessionId) {
-            Log::error('Missing checkout_session_id in metadata');
-            return response()->json(['error' => 'Missing session ID'], 400);
+        if (!$orderId) {
+            Log::error('Missing order_id in Stripe metadata');
+            return response()->json(['error' => 'Missing order ID'], 400);
         }
 
-        Log::info('Retrieved checkout session ID from metadata', [
-            'checkout_session_id' => $checkoutSessionId
+        Log::info('Processing payment completion', [
+            'order_id' => $orderId,
+            'stripe_session_id' => $session->id,
         ]);
 
-        $checkoutData = Cache::get($checkoutSessionId);
+        $order = Order::with('orderHasPaids')->find($orderId);
 
-        if (!$checkoutData) {
-            Log::error('Checkout data expired', ['session_id' => $checkoutSessionId]);
-            return response()->json(['error' => 'Session expired'], 400);
+        if (!$order) {
+            Log::error('Order not found', ['order_id' => $orderId]);
+            return response()->json(['error' => 'Order not found'], 404);
         }
 
-        Log::info('FULL CACHE DATA', [
-            'checkout_data' => $checkoutData,
-            'cart_items' => $checkoutData['cart_items'] ?? 'missing',
-            'first_item' => $checkoutData['cart_items'][0] ?? 'missing'
-        ]);
-
-        Log::info('Retrieved checkout data from cache', [
-            'checkout_session_id' => $checkoutSessionId,
-            'email' => $checkoutData['email'],
-            'total' => $checkoutData['total']
-        ]);
-
-        // Prevent duplicate orders
-        if (Order::where('stripe_session_id', $session->id)->exists()) {
-            Log::warning('Duplicate webhook - order already exists');
-            return response()->json(['received' => true]);
+        // Prevent duplicate webhook processing
+        if ($order->is_paid) {
+            Log::warning('Order already marked as paid', ['order_id' => $orderId]);
+            return response()->json(['received' => true, 'message' => 'Already processed']);
         }
 
         DB::beginTransaction();
 
         try {
-            $order = Order::create([
-                'user_id'           => $checkoutData['user_id'],
-                'name'              => $checkoutData['name'],
-                'email'             => $checkoutData['email'],
-                'phone'             => $checkoutData['phone'],
-                'address'           => $checkoutData['address'],
-                'city'              => $checkoutData['city'] ?? null,
-                'zipcode'           => $checkoutData['zipcode'] ?? null,
-                'total'             => $checkoutData['total'],
-                'status'            => 'completed',
-                'is_paid'           => true,
-                'stripe_session_id' => $session->id,
-            ]);
+            // 1. Update order_has_paids table
+            $payment = $order->orderHasPaids()
+                ->where('method', 'stripe')
+                ->where('status', 'pending')
+                ->latest()
+                ->first();
 
-            Log::info('Order created', ['order_id' => $order->id]);
-
-            foreach ($checkoutData['cart_items'] as $item) {
-                Log::info('Processing order item', [
-                    'product_id' => $item['product_id'] ?? 'missing',
-                    'qty' => $item['qty'] ?? 'missing',
-                    'price' => $item['price'] ?? 'missing',
-                    'item_keys' => array_keys($item)
+            if ($payment) {
+                $payment->update([
+                    'status'         => 'completed',
+                    'transaction_id' => $session->payment_intent ?? $session->id,
+                    'notes'          => 'Payment completed successfully via Stripe.',
                 ]);
 
-                $orderItem = $order->orderItems()->create([
-                    'product_id' => $item['product_id'],
-                    'quantity'   => $item['qty'],
-                    'price'      => $item['price'],
+                Log::info('Payment record updated (observer will sync is_paid)', [
+                    'payment_id' => $payment->id,
+                    'transaction_id' => $session->payment_intent ?? $session->id,
                 ]);
-
-                // Handle customization images
-                if (!empty($item['FinalProduct']) && is_array($item['FinalProduct'])) {
-                    $orderItem->update([
-                        'customization_images' => json_encode($item['FinalProduct']),
-                    ]);
-                    Log::info('Customization images saved', ['order_item_id' => $orderItem->id]);
-                }
-
-                // Handle PDF files
-                if (!empty($item['FinalPDF']) && is_array($item['FinalPDF']) && !empty($item['FinalPDF']['data'])) {
-                    try {
-                        $pdfData = base64_decode($item['FinalPDF']['data']);
-                        $fileName = 'custom_pdf_' . time() . '_' . $item['product_id'] . '.pdf';
-                        $filePath = 'customized_files/' . $fileName;
-                        
-                        Storage::disk('public')->put($filePath, $pdfData);
-
-                        $order->update([
-                            'is_customized' => true,
-                            'customized_file' => $filePath,
-                        ]);
-
-                        Log::info('PDF saved', ['file_path' => $filePath]);
-                    } catch (\Exception $e) {
-                        Log::error('Failed to save PDF', ['error' => $e->getMessage()]);
-                    }
-                }
+            } else {
+                Log::warning('No pending payment record found for order', ['order_id' => $orderId]);
             }
 
-            // Record payment
-            $order->orderHasPaids()->create([
-                'amount'         => $checkoutData['total'],
-                'method'         => 'stripe',
-                'status'         => 'completed',
-                'transaction_id' => $session->payment_intent,
-                'notes'          => 'Payment completed via Stripe Checkout',
-            ]);
+            // ✅ REMOVED: Don't manually update is_paid - the OrderHasPaidObserver handles this
+            // The observer will automatically call syncOrderPaymentStatus() which updates is_paid
 
             DB::commit();
-            
-            // Clean up cache
-            Cache::forget($checkoutSessionId);
 
-            Log::info('Order created successfully from webhook', [
+            // Reload order to get updated is_paid status from observer
+            $order->refresh();
+
+            Log::info('Payment processed - observer updated is_paid', [
                 'order_id' => $order->id,
-                'stripe_session_id' => $session->id,
-                'total' => $checkoutData['total']
+                'is_paid' => $order->is_paid,
+                'status' => $order->status,
             ]);
 
             // TODO: Send order confirmation email
@@ -194,31 +138,71 @@ class WebhookController extends Controller
 
             return response()->json([
                 'received' => true,
-                'order_id' => $order->id
+                'order_id' => $order->id,
+                'message' => 'Payment processed successfully',
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
             
-            Log::error('Failed to create order from webhook', [
-                'checkout_session_id' => $checkoutSessionId,
+            Log::error('Failed to update order payment status', [
+                'order_id' => $orderId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
 
-            return response()->json(['error' => 'Order creation failed'], 500);
+            return response()->json(['error' => 'Payment update failed'], 500);
         }
     }
 
+    /**
+     * Handle expired/abandoned checkout sessions
+     */
     protected function handleCheckoutExpired($session)
     {
-        $checkoutSessionId = $session->metadata->checkout_session_id ?? null;
+        $orderId = $session->metadata->order_id ?? null;
         
-        if ($checkoutSessionId) {
-            Cache::forget($checkoutSessionId);
-            Log::info('Checkout expired, cache cleared', [
-                'checkout_session_id' => $checkoutSessionId,
+        if (!$orderId) {
+            Log::info('Checkout expired without order_id');
+            return response()->json(['received' => true]);
+        }
+
+        $order = Order::find($orderId);
+        
+        if (!$order) {
+            Log::warning('Order not found for expired session', ['order_id' => $orderId]);
+            return response()->json(['received' => true]);
+        }
+
+        $payment = $order->orderHasPaids()
+            ->where('method', 'stripe')
+            ->where('status', 'pending')
+            ->latest()
+            ->first();
+
+        if ($payment) {
+            $notes = 'Checkout session expired.';
+            $recoveryUrl = $session->after_expiration->recovery->url ?? null;
+
+            if ($recoveryUrl) {
+                $notes .= ' Recovery link available.';
+            }
+
+            $payment->update([
+                'status' => 'failed',
+                'transaction_id' => $session->id,
+                'notes' => $notes,
             ]);
+
+            Log::info('Payment marked as failed due to expiration', [
+                'order_id' => $orderId,
+                'recovery_url' => $recoveryUrl ? 'available' : 'none',
+            ]);
+
+            // TODO: Send abandoned cart recovery email
+            // if ($recoveryUrl) {
+            //     Mail::to($order->email)->queue(new AbandonedCartRecovery($order, $recoveryUrl));
+            // }
         }
 
         return response()->json(['received' => true]);
