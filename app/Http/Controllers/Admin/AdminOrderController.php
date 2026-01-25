@@ -17,26 +17,53 @@ class AdminOrderController extends Controller
     /**
      * Display a listing of the orders.
      */
-    public function index(Request $request): JsonResponse
+    // public function index(Request $request): JsonResponse
+    // {
+    //     try {
+    //         $orders = Order::with(['orderItems.product', 'user:id,name,email'])
+    //             ->when($request->status, function ($query) use ($request) {
+    //                 $query->where('status', $request->status);
+    //             })
+    //             ->latest('id')
+    //             ->paginate(10);
+
+    //         return $this->successResponse(
+    //             'Orders retrieved successfully',
+    //             OrderResource::collection($orders)
+    //         );
+
+    //     } catch (\Exception $e) {
+    //     return $this->errorResponse('Failed to retrieve orders: ' . $e->getMessage(), 200);
+    //     }
+    // }
+    
+    
+    public function index(Request $request)
     {
         try {
+    
             $orders = Order::with(['orderItems.product', 'user:id,name,email'])
                 ->when($request->status, function ($query) use ($request) {
                     $query->where('status', $request->status);
                 })
                 ->latest('id')
                 ->paginate(10);
-
+    
             return $this->successResponse(
                 'Orders retrieved successfully',
                 OrderResource::collection($orders)
             );
-
+    
         } catch (\Exception $e) {
-        return $this->errorResponse('Failed to retrieve orders: ' . $e->getMessage(), 200);
+    
+            return $this->errorResponse(
+                'Failed to retrieve orders: ' . $e->getMessage(),
+                200
+            );
         }
     }
 
+    
     /**
      * Display the specified order.
      */

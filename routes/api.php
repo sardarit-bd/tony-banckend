@@ -83,6 +83,7 @@ Route::get('subscribers', [SubscriberController::class, 'index']);
 
 Route::apiResource('preorders', PreOrderController::class);
 Route::apiResource('customer-orders', OrderController::class);
+Route::get('/myorders/{id}',[OrderController::class,'myorders']);
 
 
 
