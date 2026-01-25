@@ -6,7 +6,6 @@ use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class StripeGatewayService
@@ -34,11 +33,10 @@ class StripeGatewayService
             $validatedItems = [];
             $trustedTotal = 0;
 
+            // Validate all products first
             foreach ($request->items as $item) {
-                // ✅ ONLY CHANGE: Find product first, THEN check status
                 $product = Product::find($item['product_id']);
                 
-                // Product doesn't exist at all
                 if (!$product) {
                     return response()->json([
                         'success' => false,
@@ -46,7 +44,6 @@ class StripeGatewayService
                     ], 404);
                 }
                 
-                // Product exists but is inactive
                 if ($product->status != 1) {
                     return response()->json([
                         'success' => false,
@@ -59,7 +56,6 @@ class StripeGatewayService
                     : $product->price;
 
                 $quantity = (int) $item['qty'];
-
                 $lineTotal = $sellingPrice * $quantity;
                 $trustedTotal += $lineTotal;
 
@@ -74,75 +70,16 @@ class StripeGatewayService
                 ];
             }
 
-            // Handle COD
+            // Handle COD 
             if ($request->gateway === 'cod' || $request->gateway === 'cash_on_delivery') {
                 return $this->createCODOrder($request, $validatedItems, $trustedTotal);
             }
 
-            // Cache checkout data for Stripe
-            $checkoutSessionId = 'checkout_' . uniqid() . '_' . time();
-
-            Cache::put($checkoutSessionId, [
-                'user_id'     => auth('api')->id(),
-                'name'        => $request->name,
-                'email'       => $request->email,
-                'phone'       => $request->phone,
-                'address'     => $request->address,
-                'city'        => $request->city,
-                'zipcode'     => $request->zipcode,
-                'cart_items'  => $validatedItems,
-                'total'       => $trustedTotal,
-                'created_at'  => now()->toDateTimeString(),
-            ], now()->addHours(24));
-
-            Log::info('Checkout session cached', [
-                'session_id' => $checkoutSessionId,
-                'email' => $request->email,
-                'total' => $trustedTotal,
-            ]);
-
-            // Prepare Stripe line items
-            $stripeItems = array_map(function ($item) {
-                return [
-                    'name'  => $item['name'],
-                    'qty'   => $item['qty'],
-                    'price' => round($item['price'] * 100),
-                ];
-            }, $validatedItems);
-
-            // Create Stripe session (KEEPING YOUR ORIGINAL CODE)
-            $gateway = PaymentGatewayFactory::make('stripe');
-            
-            $session = $gateway->createCheckout([
-                'items'       => $stripeItems,
-                'success_url' => env('FRONTEND_URL') . '/payment/success?session_id={CHECKOUT_SESSION_ID}',
-                'cancel_url'  => env('FRONTEND_URL') . '/payment/cancel?session_id={CHECKOUT_SESSION_ID}',
-                'currency'    => 'usd',
-                'metadata'    => [
-                    'checkout_session_id' => $checkoutSessionId,
-                ],
-                'expires_at' => now()->addHour(1)->timestamp,
-                'after_expiration' => [
-                    'recovery' => ['enabled' => true],
-                ],
-            ]);
-
-            Log::info('Stripe checkout session created', [
-                'stripe_session_id' => $session->id,
-                'checkout_session_id' => $checkoutSessionId,
-            ]);
-
-            return response()->json([
-                'success'           => true,
-                'checkout_url'      => $session->url,
-                'session_id'        => $checkoutSessionId,
-                'stripe_session_id' => $session->id,
-            ]);
+            // Handle Stripe - Create order BEFORE redirect
+            return $this->createStripeOrder($request, $validatedItems, $trustedTotal);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation failed', [
-                'errors' => $e->errors(),
-            ]);
+            Log::error('Validation failed', ['errors' => $e->errors()]);
             
             return response()->json([
                 'success' => false,
@@ -161,6 +98,119 @@ class StripeGatewayService
                 'message' => 'Failed to create checkout session',
                 'error'   => config('app.debug') ? $e->getMessage() : 'Internal server error',
             ], 500);
+        }
+    }
+
+    protected function createStripeOrder($request, $validatedItems, $trustedTotal)
+    {
+        DB::beginTransaction();
+
+        try {
+
+            $order = \App\Models\Order::create([
+                'user_id'  => auth('api')->id(),
+                'name'     => $request->name,
+                'email'    => $request->email,
+                'phone'    => $request->phone,
+                'address'  => $request->address,
+                'city'     => $request->city,
+                'zipcode'  => $request->zipcode,
+                'total'    => $trustedTotal,
+                'status'   => 'pending',
+                'is_paid'  => false,
+            ]);
+
+            Log::info('Order created for Stripe checkout', ['order_id' => $order->id]);
+
+
+            foreach ($validatedItems as $item) {
+                $orderItem = $order->orderItems()->create([
+                    'product_id' => $item['product_id'],
+                    'quantity'   => $item['qty'],
+                    'price'      => $item['price'],
+                ]);
+
+                // Handle customization images
+                if (!empty($item['FinalProduct'])) {
+                    $orderItem->update([
+                        'customization_images' => json_encode($item['FinalProduct']),
+                    ]);
+                }
+
+                // Handle PDF files
+                if (!empty($item['FinalPDF']['data'])) {
+                    $pdfData = base64_decode($item['FinalPDF']['data']);
+                    $fileName = 'custom_pdf_' . time() . '_' . $item['product_id'] . '.pdf';
+                    $filePath = 'customized_files/' . $fileName;
+
+                    Storage::disk('public')->put($filePath, $pdfData);
+
+                    $order->update([
+                        'is_customized'   => true,
+                        'customized_file' => $filePath,
+                    ]);
+                }
+            }
+
+
+            $order->orderHasPaids()->create([
+                'amount' => $trustedTotal,
+                'method' => 'stripe',
+                'status' => 'pending',
+                'notes'  => 'Awaiting Stripe payment',
+            ]);
+
+            Log::info('Order items and payment record created', ['order_id' => $order->id]);
+
+
+            $stripeItems = array_map(function ($item) {
+                return [
+                    'name'  => $item['name'],
+                    'qty'   => $item['qty'],
+                    'price' => round($item['price'] * 100),
+                ];
+            }, $validatedItems);
+
+
+            $gateway = PaymentGatewayFactory::make('stripe');
+            
+            $session = $gateway->createCheckout([
+                'items'       => $stripeItems,
+                'success_url' => env('FRONTEND_URL') . '/payment/success?session_id={CHECKOUT_SESSION_ID}',
+                'cancel_url'  => env('FRONTEND_URL') . '/payment/cancel?session_id={CHECKOUT_SESSION_ID}',
+                'currency'    => 'usd',
+                'metadata'    => [
+                    'order_id' => $order->id,
+                ],
+                'expires_at' => now()->addHour(1)->timestamp,
+                'after_expiration' => [
+                    'recovery' => ['enabled' => true],
+                ],
+            ]);
+
+
+            $order->update([
+                'stripe_session_id' => $session->id,
+            ]);
+
+            DB::commit();
+
+            Log::info('Stripe checkout session created', [
+                'stripe_session_id' => $session->id,
+                'order_id' => $order->id,
+            ]);
+
+            return response()->json([
+                'success'           => true,
+                'checkout_url'      => $session->url,
+                'order_id'          => $order->id,
+                'stripe_session_id' => $session->id,
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Stripe order creation failed', ['error' => $e->getMessage()]);
+            throw $e;
         }
     }
 
